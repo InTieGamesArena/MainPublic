@@ -1,0 +1,170 @@
+/****************************************************
+  Mineable Rock OnPhysicalAttacked Script
+  ats_mrock_atk
+
+  Last Updated: August 19, 2002
+
+  ***Ambrosia Tradeskill System***
+    Created by Mojo(Allen Sun)
+
+  This script is placed on a Mineable Rock's
+  OnPhysicalAttacked trigger.  It is responsible
+  for calculating mining success and creating the
+  appropriate results.
+****************************************************/
+
+#include "ats_inc_skill_mn"
+
+void CreateOreInRock(object oRock, int iOreType, object oPlayer)
+{
+    string sMaterialName = ATS_GetMaterialName(iOreType);
+    FloatingTextStringOnCreature("You have found some " + sMaterialName + " ore!", oPlayer, FALSE);
+    string sOreTag = "ATS_R_" + CSTR_ORE_BASETAG + "_N_" + ATS_GetMaterialTag(iOreType);
+    //ATS_CreateItemOnPlayer(sOreTag, oPlayer);
+    object oCreatedItem = CreateItemOnObject(ATS_GetResRefFromTag(sOreTag), oRock);
+    //AssignCommand(oPlayer, ActionPickUpItem(oCreatedItem));
+}
+
+void CreateRoughGemInRock(object oRock, int iGemType, object oPlayer)
+{
+    string sMaterialName = ATS_GetMaterialName(iGemType);
+    FloatingTextStringOnCreature("You have found a rough " + sMaterialName + "!", oPlayer, FALSE);
+    string sGemTag = "ATS_R_" + CSTR_GEM_BASETAG + "_N_" + ATS_GetMaterialTag(iGemType);
+    //ATS_CreateItemOnPlayer(sOreTag, oPlayer);
+    object oCreatedItem = CreateItemOnObject(ATS_GetResRefFromTag(sGemTag), oRock);
+    //AssignCommand(oPlayer, ActionPickUpItem(oCreatedItem));
+}
+
+
+void main()
+{
+    object oPlayer = GetLastAttacker();
+    object oMiner = GetLocalObject(OBJECT_SELF, "miner");
+
+    if(!GetIsObjectValid(GetLocalObject(OBJECT_SELF, "miner")) )
+      {
+      SetLocalObject(OBJECT_SELF, "miner", oPlayer);
+      }
+
+    if(oPlayer != oMiner && GetDistanceToObject(oMiner) < 3.0
+       && (GetIsObjectValid(GetAttackTarget(oMiner))
+            && GetAttackTarget(oMiner) == OBJECT_SELF) )
+      {
+        FloatingTextStringOnCreature("You cannot mine this vein while someone else is using it", oPlayer);
+        AssignCommand(oPlayer, ClearAllActions());
+        return;
+      }
+      else if(GetDistanceToObject(oMiner) > 3.0
+              || (GetIsObjectValid(GetAttackTarget(oMiner))
+                  && GetAttackTarget(oMiner) != OBJECT_SELF) )
+              {
+              DeleteLocalObject(OBJECT_SELF, "miner");
+              SetLocalObject(OBJECT_SELF, "miner", oPlayer);
+              }
+
+    int nStrength = GetAbilityScore(oPlayer, ABILITY_STRENGTH);
+    int nTimes;
+    if(nStrength >=30) nTimes = 1+(nStrength-30)/5;
+    if(nTimes >3) nTimes = 3;
+    int nCount = 0;
+
+    // add a timer to prevent multiple queuing of mining actions
+    if (GetLocalInt(oPlayer, "QEL_ALREADYMINING")) return;
+    SetLocalInt(oPlayer, "QEL_ALREADYMINING", TRUE);
+    AssignCommand(oPlayer, DelayCommand(5.0, DeleteLocalInt(oPlayer, "QEL_ALREADYMINING")));
+
+    object oThisOreVein = OBJECT_SELF;
+    // Gets the mining tool
+
+    object oWeaponOnPlayer = GetLastWeaponUsed(oPlayer);
+    int iMaterialType = GetLocalInt(OBJECT_SELF, "ats_material_type");
+    if(iMaterialType == CINT_MATERIAL_UNKNOWN)
+    {
+        FloatingTextStringOnCreature("You cannot mine this vein.", oPlayer, FALSE);
+        return;
+    }
+    //DelayCommand(2.0, AssignCommand(oPlayer, ClearAllActions()));
+    if(ATS_GetTagBaseType(oWeaponOnPlayer) != CSTR_MINETOOL)
+    {
+        FloatingTextStringOnCreature("You failed to find anything since one of your mining tools was unequipped", oPlayer, FALSE);
+        AssignCommand(oPlayer, ClearAllActions());
+        return;
+    }
+    int iHealAmount = GetMaxHitPoints() - GetCurrentHitPoints();
+    ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectHeal(iHealAmount), OBJECT_SELF);
+    if(ATS_GetItemDurability(OBJECT_SELF) > 0)
+    {
+    ATS_DecreaseItemDurability(OBJECT_SELF, 1);
+    ATS_AdjustCraftToolDurability(oWeaponOnPlayer, 1);
+    int iMiningResult = CalculateMiningSuccess(oPlayer, iMaterialType);
+
+    if(iMiningResult == CINT_SUCCESS)
+         {
+            if(ATS_GetIsMaterialTypeGem(iMaterialType) == TRUE)
+                //DelayCommand(2.75, CreateRoughGemOnPlayer(iMaterialType, oPlayer));
+              {
+                DelayCommand(2.75, CreateRoughGemInRock(OBJECT_SELF, iMaterialType, oPlayer));
+                if(nTimes)
+                 {
+                 for(nCount = 1; nCount <= nTimes; nCount++)
+                  {
+                    if(ATS_GetItemDurability(OBJECT_SELF) > 0 && d2(1) == 1)
+                      {
+                        ATS_DecreaseItemDurability(OBJECT_SELF, 1);
+                        DelayCommand(2.75, CreateRoughGemInRock(OBJECT_SELF, iMaterialType, oPlayer));
+                      }
+                  }
+                 }
+              }
+              else
+                //DelayCommand(2.75, CreateOreOnPlayer(iMaterialType, oPlayer));
+                {
+                 DelayCommand(2.75, CreateOreInRock(OBJECT_SELF, iMaterialType, oPlayer));
+                 if(nTimes)
+                 {
+                 for(nCount = 1; nCount <= nTimes; nCount++)
+                  {
+                    if(ATS_GetItemDurability(OBJECT_SELF) > 0 && d2(1) == 1)
+                      {
+                        ATS_DecreaseItemDurability(OBJECT_SELF, 1);
+                        DelayCommand(2.75, CreateOreInRock(OBJECT_SELF, iMaterialType, oPlayer));
+                      }
+                  }
+                 }
+
+                }
+
+            if( ATS_CheckTrivial(oPlayer, iMaterialType) == TRUE)
+                DelayCommand(2.0, FloatingTextStringOnCreature("This rock has become trivial to mine.", oPlayer, FALSE));
+
+            //DelayCommand(7.75, AssignCommand(oPlayer, DoPlaceableObjectAction(oThisOreVein,PLACEABLE_ACTION_BASH)));
+        }
+    else if(iMiningResult == CINT_FAILURE)
+       {
+            if(d100(1) <= CINT_SKILLGAIN_FAILURE  && ATS_CheckTrivial(oPlayer, iMaterialType) == FALSE)
+                DelayCommand(2.0, ATS_RaiseTradeskill(oPlayer, CSTR_SKILLNAME_MINING, 1));
+            DelayCommand(2.0, FloatingTextStringOnCreature(CSTR_MINE_FAILURE, oPlayer, FALSE));
+
+            //DelayCommand(5.75, AssignCommand(oPlayer, DoPlaceableObjectAction(oThisOreVein,PLACEABLE_ACTION_BASH)));
+       }
+    else
+    {
+        FloatingTextStringOnCreature("You are too unskilled to break free anything from this rock.", oPlayer, FALSE);
+    }
+
+    }
+    if(ATS_GetItemDurability(OBJECT_SELF) <= 0
+        && !GetIsObjectValid(GetFirstItemInInventory(OBJECT_SELF)) )
+    {
+
+        DelayCommand(2.75, ApplyEffectToObject(DURATION_TYPE_INSTANT, EffectDeath(), OBJECT_SELF));
+        AssignCommand(oPlayer, ClearAllActions());
+    }
+    else if(ATS_GetItemDurability(OBJECT_SELF) <= 0
+            && GetIsObjectValid(GetFirstItemInInventory(OBJECT_SELF)) )
+     {
+        FloatingTextStringOnCreature("Ore vein is depleted, remove all objects from the rubble to destroy it", oPlayer);
+        AssignCommand(oPlayer, ClearAllActions());
+     }
+
+}
